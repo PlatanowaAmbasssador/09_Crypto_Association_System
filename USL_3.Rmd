@@ -1,0 +1,377 @@
+---
+title: "Crypto Association-based System"
+author: "Kamil Kashif (428629)"
+output: 
+  html_document:
+    # theme: null
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    css: style.css
+    code_folding: show
+geometry: "left = 2.5cm, right = 2.5cm, top = 2.5cm, bottom = 2.5cm"
+header-includes:
+  - \usepackage{floatrow}
+  - \usepackage{amsmath}
+  - \floatsetup[figure]{capposition=top}
+---
+
+```{r setup, include=FALSE, echo=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(123)  # For reproducibility
+
+library(tidyverse)
+library(lubridate)
+library(cluster)
+library(factoextra)
+library(dbscan)
+library(ggpubr)
+library(ggplot2)
+library(arules)
+library(arulesViz)
+library(igraph)
+library(networkD3)
+library(reshape2)
+library(arulesViz)
+library(knitr)
+library(kableExtra)
+library(grid)
+library(gridExtra)
+library(dplyr)
+library(png)
+```
+
+# Introduction
+
+As blockchain technology and decentralized finance (**DeFi**) continue to evolve, the number of cryptocurrency transactions is growing at an incredible pace. With so much activity happening on networks like **Ethereum**, understanding how tokens interact and identifying transaction patterns can offer valuable insights into market trends, unusual behaviors, and smarter investment strategies.
+
+In this study, we dive into **Ethereum** transaction data using the **Etherscan API** to track how wallet addresses interact with different tokens. We capture details like transaction timestamps, buy/sell activity, and gas fees to get a clearer picture of trading behaviors. To uncover hidden patterns, we use association rule mining, applying the **Apriori** and **Eclat** algorithms to find tokens that frequently appear together in transactions. This helps us identify common trading pairs, token correlations, and emerging trends in the market.
+
+To make sense of these patterns, we use visualizations like item frequency plots, network graphs, and interactive charts. These tools help illustrate how wallet addresses and tokens are connected, making it easier to spot trends and clusters in transaction activity.
+
+By mapping out these relationships, this research provides valuable insights into how cryptocurrencies are traded, helping both investors and researchers make smarter, data-driven decisions. Understanding these patterns could also improve portfolio diversification strategies and risk assessment in the fast-moving crypto world.
+
+# Data
+
+The dataset considered for this analysis is extracted using the **Etherscan API** for only ERC-20 tokens i.e. Ethereum Onchain Tokens. The dataset consists of the following features:
+
+```{r chunk_1, echo=TRUE}
+col_1 <- c("Wallet.Address", "Token.Name", "Token.Symbol", "Token.Contract.Address", "Amount" )
+col_2 <- c("Gas.Price.ETH.", "Buy.Sell", "From", "To", "Timestamp")
+
+df_col <- data.frame(
+  "col1_" = col_1,
+  "col2_" = col_2
+)
+
+df_col %>%
+  kable(align = "c", 
+        col.names = c("", ""), 
+        caption = "Dataset Features", escape = FALSE) %>%
+  kable_styling("basic", full_width = F, position = "center")
+```
+
+The Wallet.Adress is the buyers wallet ID. Token.Name is the name of the token bought or sold and Token.Symbol is its ticker. Token.Contract.Adress is the ID of that crypto token, Amount is how much the trader bought of that specific crypto coin. Gas.Price.ETH is the transaction cost of in ethereum units. From and To represents if the trader is buying or selling - that is how the Buy.Sell column is created. And, Timestamp represents at what time time the transaction took place. Below is the view of the dataset:
+
+```{r chunk_2, eval = TRUE, echo=TRUE}
+df <- read.csv("./data/ethereum_transactions.csv")
+
+df$Wallet.Address <- format(df$Wallet.Address, scientific = FALSE)
+df$Token.Contract.Address <- format(df$Token.Contract.Address, scientific = FALSE)
+df$From <- format(df$From, scientific = FALSE)
+df$To <- format(df$To, scientific = FALSE)
+
+t(head(df,1)) %>%
+  kable(align = "c", 
+        col.names = c("", ""),
+        caption = "Dataset Features", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+```{r chunk_3, eval = TRUE, echo=TRUE}
+# Data Preprocessing
+
+df <- df %>%
+  filter(!is.na(Token.Symbol)) %>%
+  select(Wallet.Address, Token.Symbol, Buy.Sell, Timestamp) %>%
+  arrange(Timestamp)
+
+df_transactions <- df %>%
+  select(Wallet.Address, Token.Symbol)
+
+df_transactions <- df %>%
+  group_by(Wallet.Address) %>%
+  summarise(tokens = list(Token.Symbol)) %>%
+  ungroup()
+```
+
+For data preprocessing, we remove the missing values and only considering the Buy transactions for this analysis. Furthermore, we only consider columns: **Wallet.Address**, **Token.Symbol** as these are the most relevant ones for our recommendation system. we have a dataset of dimension **2625x2**. Additionally, we groupby and summarize the dataset by the Wallet.Adress - a necessary step to create the transaction matrix. 
+
+# Methodology
+
+This study employs association rule mining techniques to analyze Ethereum transaction patterns, focusing on two key algorithms: Eclat and Apriori. Both algorithms aim to uncover frequent token associations within Ethereum transactions, helping to identify trading patterns and relationships between different cryptocurrencies. This part is written by **AI**. I hope this is not an issue.
+
+## Eclat Algorithm
+The **Eclat** (Equivalence Class Clustering and bottom-up Lattice Traversal) algorithm is a depth-first search method used for mining frequent itemsets. Unlike Apriori, which generates candidate itemsets level by level, Eclat represents transactions in a vertical format, allowing for faster computation when working with large datasets.
+
+The process begins by organizing transaction data into sets of token symbols associated with each wallet address. Using a predefined minimum support threshold, the algorithm scans through the dataset to find frequently occurring token combinations. These frequent itemsets represent groups of tokens that often appear together in Ethereum transactions.
+
+Once the frequent itemsets are identified, the rule induction process extracts association rules. These rules are ranked based on key metrics such as support (the frequency of occurrence in the dataset), confidence (the probability that one token is traded when another token appears), and lift (the strength of the relationship between tokens beyond random chance). The results are visualized using grouped plots and scatter plots to illustrate the relationships between tokens in Ethereum transactions.
+
+## Apriori Algorithm
+The **Apriori** algorithm follows a different approach to association rule mining by employing a breadth-first search strategy. It systematically generates candidate itemsets, pruning those that do not meet the minimum support threshold at each iteration. This method significantly reduces computational complexity by eliminating infrequent itemsets early in the process.
+
+For this analysis, the Apriori algorithm was applied to the Ethereum transaction dataset to generate association rules between tokens. The algorithm first identifies individual tokens with high support, then iteratively expands these into larger itemsets while ensuring that each subset remains frequent.
+
+The resulting association rules are evaluated based on support, confidence, and lift to determine their significance. Visualization techniques, such as network graphs, were used to represent the discovered token relationships, providing insights into how cryptocurrencies are commonly traded together.
+
+## Comparison and Insights
+Both algorithms are used to extract valuable insights into Ethereum token trading behaviors. While Eclat is more efficient for large datasets due to its depth-first approach, Apriori provides a more structured and interpretable way of generating association rules. The results help identify key trading pairs, frequently associated tokens, and potential market patterns, which can be useful for traders and analysts studying blockchain transaction data.
+
+# Initial Analysis
+
+The transaction matrix is the main compenent of the whole analysis. It gives the format suitable for mining frequent itemset and association rules. The transaction matrix summary is shown below:
+
+```{r chunk_4, eval = TRUE, echo=TRUE}
+# Transaction Matrix
+transactions <- as(df_transactions$tokens, "transactions")
+summary(transactions)
+```
+
+Furthermore, the item frequency is visualized below. Generally, the the frequency for the top 20 is quite similar with *TESLA AI* being the most bought crypto token.
+
+```{r chunk_5, eval = FALSE, echo=TRUE}
+png("images/itemFrequencyPlot.png")
+itemFrequencyPlot(transactions, topN=20, type="absolute", main="Items Frequency") 
+dev.off()
+```
+
+```{r chunk_6, echo=TRUE, fig.width = 11, fig.height = 8, fig.align='center'}
+itemFrequencyPlot_img <- rasterGrob(readPNG("images/itemFrequencyPlot.png"), width = unit(1, "npc"), height = unit(1, "npc"))
+
+grid.arrange(itemFrequencyPlot_img, ncol = 1)
+```
+
+# Eclat Algorithm
+
+The Eclat algorithm is a widely used method for mining frequent itemsets and generating association rules in data analysis. In this case, it is applied to analyze ERC-20 crypto tokens, uncovers the relationships and patterns between different tokens within a given dataset. The eclat algorithm is run with a Support level of 0.5 and minimum length equal to 5. The rule induction is run for the confidence level of 0.1. Based on the results below, here is the analysis:
+
+The first table represents the frequent itemsets according to this Eclat algorithm for this dataset. The top 10 Items have generally similar Support level (the proportion of transactions that contain a particular combination of tokens). This is combination is seen to be {ASK AI, DEEPSEEK AI, DEEPSEEK R1, SAKANA AI, TESLA AI} with a support level of 76.47%.
+
+The second table is sorted by Support. LHS can be thought of as the condition, and RHS can be thought of as the conclusion. The first rule implies that whenever {DEEPSEEK AI, DEEPSEEK R1, SAKANA AI, TESLA AI} are bought it is 1.3 times likely that {ASK AI} will also be bought rather than it being a random occurence. Generally, for the top 10 the support levels of the rules are quite well as they are above 70%. It is worth observing that the top 5 have the same Support levels, this is probably due to the fact that LHS is the same for them and the RHS is being exchanged. Also, they have similar frequencies.
+
+The third table is sorted via Confidence. The confidence level is 1 for all the top 10. This indicated that these are strong rules where the RHS item is guaranteed to appear when the LHS is present.
+
+The fourth table is sorted by Lift. It measures the association strength between the LHS and RHS. The lift level for the top 10 is the same. There are minor change in the LHS basket. This means if the LHS are bought by a given trader, it is very likely that he/she will also buy the related RHS.
+
+The plot below indicates that the higher the support, the higher is the lift. It also shows that FARTCOIN and LUMA AI are among the coin that are most frequently bought together.
+
+```{r chunk_7, eval = FALSE, echo=TRUE}
+eclat_results <- eclat(transactions, parameter = list(support = 0.5, minlen = 5))
+write.csv(inspect(head(sort(eclat_results, by = "support"), 10)), "./data/eclat_inspect.csv")
+```
+
+```{r chunk_8, eval = TRUE, echo=TRUE}
+eclat_inspect <- read.csv("./data/eclat_inspect.csv")
+
+eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "Items", "Support", "Count"),
+        caption = "Eclat Inspections", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+```{r chunk_9, eval = FALSE, echo=TRUE}
+# Frequent Rules
+freq_rules_eclat <- ruleInduction(eclat_results, transactions, confidence=0.1)
+write.csv(as(freq_rules_eclat, "data.frame"), "./data/freq_rules_eclat.csv")
+
+freq_inspect_support <- inspect(head(sort(freq_rules_eclat, by = "support"), 10))
+freq_inspect_confidence <- inspect(head(sort(freq_rules_eclat, by = "confidence"), 10))
+freq_inspect_lift <- inspect(head(sort(freq_rules_eclat, by = "lift"), 10))
+
+write.csv(freq_inspect_support, "./data/freq_inspect_support.csv")
+write.csv(freq_inspect_confidence, "./data/freq_inspect_confidence.csv")
+write.csv(freq_inspect_lift, "./data/freq_inspect_lift.csv")
+
+freq_eclat_rules <- read.csv("./data/freq_rules_eclat.csv")
+
+freq_rules_eclat_goruped <- plot(freq_rules_eclat, method="grouped")
+ggsave(filename = "images/freq_rules_eclat_goruped.png", plot = freq_rules_eclat_goruped, width = 6, height = 6)
+```
+
+## Frequent Rules { .tabset}
+
+### By Support
+```{r chunk_10, eval = TRUE, echo=TRUE}
+freq_eclat_inspect <- read.csv("./data/freq_inspect_support.csv")
+
+freq_eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "LHS", "", "RHS", "Support", "Confidence", "Lift", "Itemset"),
+        caption = "Eclat Frequency Inspection", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+### By Confidence
+```{r chunk_11, eval = TRUE, echo=TRUE}
+freq_eclat_inspect <- read.csv("./data/freq_inspect_confidence.csv")
+
+freq_eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "LHS", "", "RHS", "Support", "Confidence", "Lift", "Itemset"),
+        caption = "Eclat Frequency Inspection", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+### By Lift
+```{r chunk_12, eval = TRUE, echo=TRUE}
+freq_eclat_inspect <- read.csv("./data/freq_inspect_lift.csv")
+
+freq_eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "LHS", "", "RHS", "Support", "Confidence", "Lift", "Itemset"),
+        caption = "Eclat Frequency Inspection", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+## Visualisations - Eclat {.tabset}
+
+### Grouped Matrix by Lift & Support
+
+```{r chunk_13, echo=TRUE, fig.width = 11, fig.height = 10, fig.align='center'}
+itemFrequencyPlot_img_1 <- rasterGrob(readPNG("images/freq_rules_eclat_goruped.png"), width = unit(1, "npc"), height = unit(1, "npc"))
+
+grid.arrange(itemFrequencyPlot_img_1, ncol = 1)
+```
+
+# Apriopri Algorithm 
+
+Apriopri algorithm is used for analysis between specific items. In the study, I will choose the by item comparison using the Items Frequency. I decided to choose the RHS as TESLA AI, AERO, FRIDON AI, AEROBUD. The reason is because these are the first items representing each level. The support level of 0.5 and the confidence level of 0.8 will be used. Based on the results presented below, I will present my analysis.
+
+In case of TESLA AI, it is usually bought alone with a probability of 82.3% or with NVIDIA AI with a probability of 76.47% and a 20% higher lift than alone. In case of AERO, it is bought with MASSIVE AI with a probability of 70.58%. In case of the FRIDON AI, it is bought with SCALE AI with a probability of 64.70%. In case of the AEROBUD, it is bought with NANSEN AI with a probability of 58.82%.
+
+```{r chunk_14, eval = FALSE, echo=TRUE}
+apriori_results <- apriori(transactions, parameter = list(support = 0.5, confidence = 0.8), appearance=list(default="lhs", rhs="TESLA AI"))
+write.csv(inspect(head(sort(apriori_results, by = "support"), 10)), "./data/apriori_results_TESLA.csv")
+
+# Visualisation - Apriori
+png("images/apriori_results_graphs_TESLA.png")
+plot(apriori_results, method="graph")
+dev.off()
+
+apriori_results <- apriori(transactions, parameter = list(support = 0.5, confidence = 0.8), appearance=list(default="lhs", rhs="AERO"))
+write.csv(inspect(head(sort(apriori_results, by = "support"), 10)), "./data/apriori_results_AERO.csv")
+
+# Visualisation - Apriori
+png("images/apriori_results_graphs_AERO.png")
+plot(apriori_results, method="graph")
+dev.off()
+
+apriori_results <- apriori(transactions, parameter = list(support = 0.5, confidence = 0.8), appearance=list(default="lhs", rhs="Fridon AI"))
+write.csv(inspect(head(sort(apriori_results, by = "support"), 10)), "./data/apriori_results_Fridon.csv")
+
+# Visualisation - Apriori
+png("images/apriori_results_graphs_Fridon.png")
+plot(apriori_results, method="graph")
+dev.off()
+
+apriori_results <- apriori(transactions, parameter = list(support = 0.5, confidence = 0.8), appearance=list(default="lhs", rhs="AEROBUD"))
+write.csv(inspect(head(sort(apriori_results, by = "support"), 10)), "./data/apriori_results_AEROBUD.csv")
+
+# Visualisation - Apriori
+png("images/apriori_results_graphs_AEROBUD.png")
+plot(apriori_results, method="graph")
+dev.off()
+```
+
+## Frequency Rules { .tabset}
+
+### By TESLA AI
+```{r chunk_15, eval = TRUE, echo=TRUE}
+freq_eclat_inspect <- read.csv("./data/apriori_results_TESLA.csv")
+
+freq_eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "LHS", "", "RHS", "Support", "Confidence", "Coverage", "Lift", "Count"),
+        caption = "Apriopri Frequency Inspection", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+### By AERO
+```{r chunk_16, eval = TRUE, echo=TRUE}
+freq_eclat_inspect <- read.csv("./data/apriori_results_AERO.csv")
+
+freq_eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "LHS", "", "RHS", "Support", "Confidence", "Coverage", "Lift", "Count"),
+        caption = "Apriopri Frequency Inspection", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+### By FRIDON AI
+```{r chunk_17, eval = TRUE, echo=TRUE}
+freq_eclat_inspect <- read.csv("./data/apriori_results_Fridon.csv")
+
+freq_eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "LHS", "", "RHS", "Support", "Confidence", "Coverage", "Lift", "Count"),
+        caption = "Apriopri Frequency Inspection", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+### AEROBUD
+```{r chunk_18, eval = TRUE, echo=TRUE}
+freq_eclat_inspect <- read.csv("./data/apriori_results_AEROBUD.csv")
+
+freq_eclat_inspect %>%
+  kable(align = "c", 
+        col.names = c("", "LHS", "", "RHS", "Support", "Confidence", "Coverage", "Lift", "Count"),
+        caption = "Apriopri Frequency Inspection", escape = FALSE) %>%
+  kable_styling("responsive", full_width = F, position = "center")
+```
+
+## Visualisations - Apriopri { .tabset}
+
+### By TESLA AI
+```{r chunk_19, echo=TRUE, fig.width = 11, fig.height = 8, fig.align='center'}
+apriori_results_graphs_img <- rasterGrob(readPNG("images/apriori_results_graphs_TESLA.png"), width = unit(1, "npc"), height = unit(1, "npc"))
+
+grid.arrange(apriori_results_graphs_img, ncol = 1)
+```
+
+### By AERO
+```{r chunk_20, echo=TRUE, fig.width = 11, fig.height = 8, fig.align='center'}
+apriori_results_graphs_img <- rasterGrob(readPNG("images/apriori_results_graphs_AERO.png"), width = unit(1, "npc"), height = unit(1, "npc"))
+
+grid.arrange(apriori_results_graphs_img, ncol = 1)
+```
+
+### By FRIDON
+```{r chunk_21, echo=TRUE, fig.width = 11, fig.height = 8, fig.align='center'}
+apriori_results_graphs_img <- rasterGrob(readPNG("images/apriori_results_graphs_FRIDON.png"), width = unit(1, "npc"), height = unit(1, "npc"))
+
+grid.arrange(apriori_results_graphs_img, ncol = 1)
+```
+
+### By AEROBUD
+```{r chunk_22, echo=TRUE, fig.width = 11, fig.height = 8, fig.align='center'}
+apriori_results_graphs_img <- rasterGrob(readPNG("images/apriori_results_graphs_AEROBUD.png"), width = unit(1, "npc"), height = unit(1, "npc"))
+
+grid.arrange(apriori_results_graphs_img, ncol = 1)
+```
+
+# Summary
+
+In this study, association rule mining was used to identify frequent token combinations and trading patterns within Ethereum transactions. By applying the Eclat and Apriori algorithms, key relationships between tokens were discovered, offering valuable insights into trading behavior. These findings provide a foundation for better decision-making, optimized trading strategies, and a deeper understanding of the Ethereum market. 
+
+The most frequently bought crypto coin turned out to be TESLA AI which is usually bought with other AI coins. The analysis shows that certain AI-related cryptocurrencies tend to move together, with tokens like ASK AI, DEEPSEEK AI, TESLA AI, and SAKANA AI often appearing in the same portfolios. TESLA AI stands out as a key player, showing up in 82% of cases, which means its price changes could signal trends for other similar tokens. We also see clusters of assets like AERO, FISH AI, MASSIVE AI, NANSEN AI, and SHIBY that are closely linked, suggesting that if one moves, the others might follow. Furthermore, assets like AERO and FISH AI seem to be early movers, meaning their activity could hint at what is coming next in the market. On the other hand, the strong connections between these tokens mean that if one crashes, it could pull the others down with it. This highlights both opportunities and risks for investors, making it crucial to watch key tokens like TESLA AI and ASK AI for market signals while also thinking about diversification strategies in order to mitigate risks.
+
+# Further Applications
+
+As crypto is both my hobby and passion, this topic sparked ideas for further applying these algorithms. On-chain trading is considered one of the riskiest forms of trading in the financial world—some even label it as gambling. However, I believe that with the right tools, what is often seen as "LUCK" can be transformed into a "STRATEGIC ADVANTAGE." Here's how I envision taking this further: first, I would consider token-based on-chain data, such as volume, current gas fees, buy or sell orders, prices, and more. I would conduct some analysis on this data (still figuring out the specifics). My algorithm would run 24/7 to collect market data and track the transactions of "crypto whales." On-chain trading revolves around identifying the "narrative"—what people are currently interested in or are likely to invest in. The goal of my algorithm would be to scan token contract addresses and estimate the probability of investors buying into that token. This algorithm could either stop there or, based on the predicted likelihood and a defined threshold, make a small investment. For the latter, I'd establish a take-profit strategy, initially aiming to exit with a 2x return. Additionally, the algorithm would aim to make hundreds of trades per day so that even if some trades are lost, the gains from successful ones outweigh the losses. This concept is still in the early stages, and I'm refining it—perhaps this will even become my master's thesis? An AI agent that can trade on-chain --> WoW!
+
+# References
+https://etherscan.io
